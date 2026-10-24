@@ -9,7 +9,7 @@ A clean English app picker for Samsung Tizen TVs, installed as a TizenBrew modul
 3. Choose Add GitHub Module.
 4. Enter:
    ```text
-   dylandirosa98/clean-tv-home
+   dylandirosa98/tv
    ```
 5. Open Clean TV Home from TizenBrew.
 
