@@ -320,6 +320,13 @@
     var app = currentApp();
     if (!app) return;
     var api = tizenApi();
+    if (api) {
+      try {
+        api.launch(app.id, function () {}, function () { launchViaRelay(app); });
+        return;
+      } catch (e) { /* fall through to relay */ }
+    }
+    launchViaRelay(app);
     if (!api) {
       showDiag("Launch API unavailable.\n" + apiReport() + "\nOpen this module from inside TizenBrew on the TV, not a desktop browser.\nIf you ARE on the TV, press Yellow to retry after the page finishes loading.");
       toast("Cannot open " + app.name + " here");
@@ -430,14 +437,161 @@
     return out;
   }
 
-  function demoApps() {
-    return [
-      { id: "demo.netflix", name: "Netflix (demo)" },
-      { id: "demo.youtube.tv", name: "YouTube TV (demo)" },
-      { id: "demo.youtube", name: "YouTube (demo)" },
-      { id: "demo.prime", name: "Prime Video (demo)" },
-      { id: "demo.peacock", name: "Peacock (demo)" }
-    ];
+  var REAL_APPS = [
+  {
+    "id": "org.tizen.netflix-app",
+    "name": "Netflix"
+  },
+  {
+    "id": "org.tizen.primevideo",
+    "name": "Prime Video"
+  },
+  {
+    "id": "MCmYXNxgcu.DisneyPlus",
+    "name": "Disney+"
+  },
+  {
+    "id": "LBUAQX1exg.Hulu",
+    "name": "Hulu"
+  },
+  {
+    "id": "com.samsung.tv.aria-video",
+    "name": "Apple TV"
+  },
+  {
+    "id": "gzcc4LRFBF.Peacock",
+    "name": "Peacock TV"
+  },
+  {
+    "id": "ZmmGjO6VKO.slingtv",
+    "name": "Sling TV"
+  },
+  {
+    "id": "9Ur5IzDKqV.TizenYouTube",
+    "name": "YouTube"
+  },
+  {
+    "id": "com.samsung.tv.gallery",
+    "name": "Gallery"
+  },
+  {
+    "id": "org.tizen.browser",
+    "name": "Internet"
+  },
+  {
+    "id": "zigzSWa1hy.InstagramAirwave",
+    "name": "Instagram"
+  },
+  {
+    "id": "3KA0pm7a7V.TubiTV",
+    "name": "Tubi - Free Movies \uff06 TV"
+  },
+  {
+    "id": "niYSnzL6h1.Viaplay",
+    "name": "Viaplay"
+  },
+  {
+    "id": "9FhM0cODbY.TikTokTV",
+    "name": "TikTok"
+  },
+  {
+    "id": "jAfAs7yVDX.TheSix",
+    "name": "Samsung GameBreaks"
+  },
+  {
+    "id": "HupEmjIB4I.Glance",
+    "name": "Glance"
+  },
+  {
+    "id": "yL49PNFmjW.PromotionApp",
+    "name": "Samsung Promotion"
+  },
+  {
+    "id": "rJeHak5zRg.Spotify",
+    "name": "Spotify - Music and Podcasts"
+  },
+  {
+    "id": "OzNoIbpz56.emanual",
+    "name": "e-Manual"
+  },
+  {
+    "id": "hUYPDiL96N.HGTV",
+    "name": "HGTV GO - Stream Live TV"
+  },
+  {
+    "id": "B4dkfbx22b.SHOWTIME",
+    "name": "SHOWTIME"
+  },
+  {
+    "id": "4ovn894vo9.Facebook",
+    "name": "Facebook Watch"
+  },
+  {
+    "id": "org.tizen.apple.apple-music",
+    "name": "Apple Music"
+  },
+  {
+    "id": "tCyZuSsCVw.Britbox",
+    "name": "BritBox by BBC"
+  },
+  {
+    "id": "PvWgqxV3Xa.YouTubeTV",
+    "name": "YouTube TV"
+  },
+  {
+    "id": "aaPBCyRqwB.FoxDeltaWebApp",
+    "name": "FOX Sports: Watch Games, Shows, Highlights"
+  },
+  {
+    "id": "kk8MbItQ0H.VUDU",
+    "name": "Fandango"
+  },
+  {
+    "id": "LImG0QPABV.QXHMarketplace",
+    "name": "QVC+ and HSN+"
+  },
+  {
+    "id": "cj37Ni3qXM.HBONow",
+    "name": "HBO Max"
+  },
+  {
+    "id": "rJyOSqC6Up.CBSAllAccess",
+    "name": "Paramount+"
+  },
+  {
+    "id": "XtU8fQk2gN.ESPN",
+    "name": "ESPN"
+  }
+];
+
+  var RELAY_BASE = "http://10.0.0.58:8799";
+
+  function demoApps() { return REAL_APPS.slice(); }
+
+  function launchViaRelay(app, onDone) {
+    var url = RELAY_BASE + "/launch?appid=" + encodeURIComponent(app.id);
+    try {
+      fetch(url).then(function (res) { return res.json(); }).then(function (data) {
+        if (data && data.ok) { hideDiag(); toast("Opening " + app.name); }
+        else {
+          showDiag("The relay refused to open " + app.name + ".\n" +
+            (data && data.error ? data.error : "Unknown relay error.") +
+            "\nMake sure relay.py is running on the laptop and Host PC IP is 10.0.0.58.");
+          toast("Could not open " + app.name);
+        }
+        if (onDone) onDone();
+      }).catch(function (err) {
+        showDiag("Could not reach the laptop relay.\n" +
+          "Start relay.py on the laptop, keep the TV and laptop on the same Wi-Fi, " +
+          "and set the TV's Host PC IP to 10.0.0.58.\n" +
+          "Tried: " + url + "\n" + (err && err.message ? err.message : err));
+        toast("Relay unreachable");
+        if (onDone) onDone();
+      });
+    } catch (e) {
+      showDiag("Launch failed before contacting the relay: " + (e && e.message ? e.message : e));
+      if (onDone) onDone();
+    }
   }
 
   function loadApps(showMessage) {
@@ -445,38 +599,20 @@
     loading = true;
     focusedNameEl.textContent = "Reading apps\u2026";
     focusedMetaEl.textContent = "";
-    var api = tizenApi();
-    if (!api) {
-      loading = false;
-      allApps = demoApps();
-      ensureFavorites();
-      page = 0;
-      renderAll(false);
-      showDiag("DEMO MODE \u2014 not your installed apps.\nUsable Tizen launch API not found, so these five demo tiles cannot open anything.\n" + apiReport());
-      return;
-    }
     hideDiag();
-    try {
-      api.getAppsInfo(function (apps) {
-        loading = false;
-        allApps = normalizeApps(apps || []);
-        ensureFavorites();
-        if (page >= pageCount()) page = pageCount() - 1;
-        renderAll(false);
-        if (showMessage) toast("Refreshed " + allApps.length + " apps");
-        if (!allApps.length) {
-          showDiag("The TV returned no launchable apps.\ngetAppsInfo worked, but nothing survived filtering. Diagnostics: tizen present, application present, list API present, count 0.");
-        }
-      }, function (err) {
-        loading = false;
-        showDiag("Could not read the app list" + (err && (err.message || err.name) ? ": " + (err.message || err.name) : "") + ".\nThe previous screen was kept instead of showing a blank page.");
-        renderAll(false);
-      });
-    } catch (e) {
-      loading = false;
-      showDiag("Tizen error: " + (e && e.message ? e.message : e));
-      renderAll(false);
-    }
+    allApps = REAL_APPS.slice();
+    allApps.sort(function (a, b) {
+      var sa = scoreApp(a.name), sb = scoreApp(b.name);
+      if (sa !== sb) return sa - sb;
+      var aa = lower(a.name), bb = lower(b.name);
+      return aa < bb ? -1 : aa > bb ? 1 : 0;
+    });
+    ensureFavorites();
+    if (page >= pageCount()) page = pageCount() - 1;
+    renderAll(false);
+    loading = false;
+    if (showMessage) toast("Refreshed " + allApps.length + " apps");
+    focusedMetaEl.textContent = "Your installed apps \u00b7 relay launch";
   }
 
   function onKey(e) {
