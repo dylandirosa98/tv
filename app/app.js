@@ -83,11 +83,60 @@
     document.getElementById("date").textContent = days[d.getDay()] + ", " + months[d.getMonth()] + " " + d.getDate();
   }
 
+  function tizenContexts() {
+    var contexts = [];
+    try {
+      if (typeof tizen !== "undefined" && tizen.application) {
+        contexts.push({ name: "window", api: tizen.application });
+      }
+    } catch (e) {}
+    try {
+      if (window.parent && window.parent !== window &&
+          window.parent.tizen && window.parent.tizen.application) {
+        contexts.push({ name: "parent", api: window.parent.tizen.application });
+      }
+    } catch (e) {}
+    try {
+      if (window.top && window.top !== window &&
+          window.top.tizen && window.top.tizen.application) {
+        contexts.push({ name: "top", api: window.top.tizen.application });
+      }
+    } catch (e) {}
+    return contexts;
+  }
+
   function tizenApi() {
-    if (typeof tizen === "undefined" || !tizen.application) return null;
-    if (typeof tizen.application.getAppsInfo !== "function") return null;
-    if (typeof tizen.application.launch !== "function") return null;
-    return tizen.application;
+    var contexts = tizenContexts();
+    for (var i = 0; i < contexts.length; i++) {
+      if (typeof contexts[i].api.getAppsInfo === "function" &&
+          typeof contexts[i].api.launch === "function") {
+        return contexts[i].api;
+      }
+    }
+    return null;
+  }
+
+  function apiReport() {
+    var lines = [];
+    lines.push("URL: " + safeText(location.href).slice(0, 120));
+    lines.push("UA: " + safeText(navigator.userAgent).slice(0, 120));
+    function probe(label, obj) {
+      try {
+        if (typeof obj === "undefined") return label + ": missing";
+        var app = obj.application ? "app:" + (typeof obj.application.getAppsInfo === "function" ? "list-ok" : "no-list") +
+          "/launch:" + (typeof obj.application.launch === "function" ? "ok" : "no-launch") : "no-application";
+        return label + ": present, " + app;
+      } catch (e) {
+        return label + ": blocked (" + (e && e.message ? e.message : e) + ")";
+      }
+    }
+    var parentTizen = null, topTizen = null;
+    try { parentTizen = window.parent !== window ? window.parent.tizen : undefined; } catch (e) { parentTizen = "blocked"; }
+    try { topTizen = window.top !== window ? window.top.tizen : undefined; } catch (e) { topTizen = "blocked"; }
+    lines.push(probe("window.tizen", typeof tizen !== "undefined" ? tizen : undefined));
+    lines.push(probe("parent.tizen", parentTizen === "blocked" ? undefined : parentTizen));
+    lines.push(probe("top.tizen", topTizen === "blocked" ? undefined : topTizen));
+    return lines.join("\n");
   }
 
   function initials(name) {
@@ -272,10 +321,7 @@
     if (!app) return;
     var api = tizenApi();
     if (!api) {
-      showDiag("Launch API unavailable.\n" +
-        "tizen: " + (typeof tizen !== "undefined" ? "present" : "missing") + "\n" +
-        "application: " + (typeof tizen !== "undefined" && tizen.application ? "present" : "missing") + "\n" +
-        "Open this module from inside TizenBrew on the TV, not a desktop browser.");
+      showDiag("Launch API unavailable.\n" + apiReport() + "\nOpen this module from inside TizenBrew on the TV, not a desktop browser.\nIf you ARE on the TV, press Yellow to retry after the page finishes loading.");
       toast("Cannot open " + app.name + " here");
       return;
     }
@@ -337,7 +383,8 @@
       if (window.history && history.length > 1) { history.back(); return; }
     } catch (e) {}
     try {
-      if (typeof tizen !== "undefined" && tizen.application) tizen.application.getCurrentApplication().exit();
+      var exitApi = tizenApi();
+      if (exitApi) exitApi.getCurrentApplication().exit();
     } catch (e2) {}
   }
 
@@ -353,7 +400,10 @@
 
   function normalizeApps(apps) {
     var currentId = "";
-    try { currentId = tizen.application.getCurrentApplication().appInfo.id; } catch (e) {}
+    try {
+      var currentApi = tizenApi();
+      if (currentApi) currentId = currentApi.getCurrentApplication().appInfo.id;
+    } catch (e) {}
     var seen = {};
     var out = [];
     for (var i = 0; i < apps.length; i++) {
@@ -402,7 +452,7 @@
       ensureFavorites();
       page = 0;
       renderAll(false);
-      showDiag("Preview mode: Tizen app API not found.\nOn the TV this list comes from the installed apps. In a desktop browser it shows five demo tiles.");
+      showDiag("Preview mode: usable Tizen launch API not found.\n" + apiReport());
       return;
     }
     hideDiag();

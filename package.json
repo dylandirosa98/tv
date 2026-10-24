@@ -1,6 +1,6 @@
 {
   "name": "clean-tv-home",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "description": "Clean English app picker for Samsung Tizen TVs via TizenBrew. Favorites-first grid for Netflix, YouTube, YouTube TV, Prime Video, and Peacock, then all installed apps.",
   "packageType": "app",
