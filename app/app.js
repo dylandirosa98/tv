@@ -432,11 +432,11 @@
 
   function demoApps() {
     return [
-      { id: "demo.netflix", name: "Netflix" },
-      { id: "demo.youtube.tv", name: "YouTube TV" },
-      { id: "demo.youtube", name: "YouTube" },
-      { id: "demo.prime", name: "Prime Video" },
-      { id: "demo.peacock", name: "Peacock" }
+      { id: "demo.netflix", name: "Netflix (demo)" },
+      { id: "demo.youtube.tv", name: "YouTube TV (demo)" },
+      { id: "demo.youtube", name: "YouTube (demo)" },
+      { id: "demo.prime", name: "Prime Video (demo)" },
+      { id: "demo.peacock", name: "Peacock (demo)" }
     ];
   }
 
@@ -452,7 +452,7 @@
       ensureFavorites();
       page = 0;
       renderAll(false);
-      showDiag("Preview mode: usable Tizen launch API not found.\n" + apiReport());
+      showDiag("DEMO MODE \u2014 not your installed apps.\nUsable Tizen launch API not found, so these five demo tiles cannot open anything.\n" + apiReport());
       return;
     }
     hideDiag();
