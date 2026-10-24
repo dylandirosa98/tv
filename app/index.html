@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=1920, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>Clean TV Home</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="backdrop"></div>
+  <main id="shell">
+    <header>
+      <div class="brandBlock">
+        <div class="brand">Clean TV Home</div>
+        <div class="subtitle">Samsung Tizen &middot; fast app picker</div>
+      </div>
+      <div class="clockBlock">
+        <div id="clock">--:--</div>
+        <div id="date">---</div>
+      </div>
+    </header>
+
+    <section class="hero">
+      <div id="focusedName">Loading apps&hellip;</div>
+      <div id="focusedMeta">Reading the installed app list</div>
+    </section>
+
+    <section class="section">
+      <div class="sectionHeader">
+        <div class="sectionTitle">Favorites</div>
+        <div id="favoriteCount" class="sectionMeta"></div>
+      </div>
+      <div id="favorites" class="favorites"></div>
+    </section>
+
+    <section class="section appsSection">
+      <div class="sectionHeader">
+        <div class="sectionTitle">All apps</div>
+        <div id="pageInfo" class="sectionMeta"></div>
+      </div>
+      <div id="grid" class="grid"></div>
+    </section>
+
+    <footer>
+      <span><b>&larr;&uarr;&darr;&rarr;</b> Move</span>
+      <span><b>OK</b> Open</span>
+      <span class="green"><b>&#9679;</b> Pin / unpin</span>
+      <span class="red"><b>&#9679;</b> Previous page</span>
+      <span class="blue"><b>&#9679;</b> Next page</span>
+      <span class="yellow"><b>&#9679;</b> Refresh</span>
+      <span><b>Back</b> TizenBrew</span>
+    </footer>
+
+    <div id="toast"></div>
+    <div id="diag" hidden>
+      <h2 id="diagTitle">Diagnostics</h2>
+      <p id="diagBody"></p>
+    </div>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

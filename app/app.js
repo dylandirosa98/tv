@@ -1,0 +1,452 @@
+(function () {
+  "use strict";
+
+  var COLS = 7;
+  var ROWS = 3;
+  var PAGE_SIZE = COLS * ROWS;
+  var MAX_FAVORITES = 9;
+  var FAVORITES_KEY = "cleantvhome.favorites.v1";
+  var FIRST_RUN_KEY = "cleantvhome.initialized.v1";
+
+  var favoritesEl = document.getElementById("favorites");
+  var gridEl = document.getElementById("grid");
+  var focusedNameEl = document.getElementById("focusedName");
+  var focusedMetaEl = document.getElementById("focusedMeta");
+  var favoriteCountEl = document.getElementById("favoriteCount");
+  var pageInfoEl = document.getElementById("pageInfo");
+  var toastEl = document.getElementById("toast");
+  var diagEl = document.getElementById("diag");
+  var diagBodyEl = document.getElementById("diagBody");
+
+  var allApps = [];
+  var favoriteIds = [];
+  var favoriteApps = [];
+  var pageApps = [];
+  var section = "favorites";
+  var focusIndex = 0;
+  var page = 0;
+  var lastFocusedTile = null;
+  var toastTimer = null;
+  var loading = false;
+
+  /* Preferred order for this household: streaming apps first. Matching is
+     intentionally loose because Samsung app names vary by region. */
+  var preferredNames = [
+    "netflix",
+    "youtube tv",
+    "youtube",
+    "prime video",
+    "peacock",
+    "internet",
+    "browser",
+    "plex",
+    "jellyfin"
+  ];
+
+  function safeText(v) { return v == null ? "" : String(v); }
+  function lower(v) { return safeText(v).toLowerCase(); }
+
+  function toast(message) {
+    toastEl.textContent = message;
+    toastEl.className = "show";
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { toastEl.className = ""; }, 2600);
+  }
+
+  function showDiag(message) {
+    diagEl.hidden = false;
+    diagBodyEl.textContent = message;
+  }
+
+  function hideDiag() { diagEl.hidden = true; }
+
+  function readJson(key, fallback) {
+    try {
+      var raw = localStorage.getItem(key);
+      if (!raw) return fallback;
+      return JSON.parse(raw);
+    } catch (e) { return fallback; }
+  }
+
+  function writeJson(key, value) {
+    try { localStorage.setItem(key, JSON.stringify(value)); return true; }
+    catch (e) { return false; }
+  }
+
+  function updateClock() {
+    var d = new Date();
+    var hh = ("0" + d.getHours()).slice(-2);
+    var mm = ("0" + d.getMinutes()).slice(-2);
+    var days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    var months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    document.getElementById("clock").textContent = hh + ":" + mm;
+    document.getElementById("date").textContent = days[d.getDay()] + ", " + months[d.getMonth()] + " " + d.getDate();
+  }
+
+  function tizenApi() {
+    if (typeof tizen === "undefined" || !tizen.application) return null;
+    if (typeof tizen.application.getAppsInfo !== "function") return null;
+    if (typeof tizen.application.launch !== "function") return null;
+    return tizen.application;
+  }
+
+  function initials(name) {
+    var clean = safeText(name).replace(/[^a-zA-Z0-9 ]/g, " ");
+    var parts = clean.split(/\s+/).filter(Boolean);
+    var result = "";
+    for (var i = 0; i < parts.length && result.length < 3; i++) {
+      result += parts[i].charAt(0).toUpperCase();
+    }
+    return result || "APP";
+  }
+
+  function hasFavorite(id) { return favoriteIds.indexOf(id) !== -1; }
+
+  function appendInitials(parent, name) {
+    var fallback = document.createElement("div");
+    fallback.className = "initials";
+    fallback.textContent = initials(name);
+    parent.appendChild(fallback);
+  }
+
+  function makeTile(info) {
+    var tile = document.createElement("div");
+    tile.className = "tile" + (hasFavorite(info.id) ? " favoriteMark" : "");
+    tile.setAttribute("data-app-id", info.id);
+    var iconWrap = document.createElement("div");
+    iconWrap.className = "iconWrap";
+    if (info.iconPath) {
+      var img = document.createElement("img");
+      img.alt = "";
+      img.src = info.iconPath;
+      img.onerror = function () {
+        if (img.parentNode) img.parentNode.removeChild(img);
+        appendInitials(iconWrap, info.name);
+      };
+      iconWrap.appendChild(img);
+    } else {
+      appendInitials(iconWrap, info.name);
+    }
+    var label = document.createElement("div");
+    label.className = "label";
+    label.textContent = info.name;
+    tile.appendChild(iconWrap);
+    tile.appendChild(label);
+    return tile;
+  }
+
+  function currentApp() {
+    if (section === "favorites") return favoriteApps[focusIndex] || null;
+    return pageApps[focusIndex] || null;
+  }
+
+  function currentTiles() {
+    return section === "favorites" ? favoritesEl.children : gridEl.children;
+  }
+
+  function renderFavorites() {
+    favoritesEl.innerHTML = "";
+    favoriteApps = [];
+    var i, j;
+    for (i = 0; i < favoriteIds.length; i++) {
+      for (j = 0; j < allApps.length; j++) {
+        if (allApps[j].id === favoriteIds[i]) { favoriteApps.push(allApps[j]); break; }
+      }
+    }
+    if (favoriteApps.length !== favoriteIds.length) {
+      favoriteIds = favoriteApps.map(function (a) { return a.id; });
+      writeJson(FAVORITES_KEY, favoriteIds);
+    }
+    if (!favoriteApps.length) {
+      var empty = document.createElement("div");
+      empty.className = "emptyFavorites";
+      empty.textContent = "Pick an app below, then press the GREEN button to pin it here";
+      favoritesEl.appendChild(empty);
+    } else {
+      for (i = 0; i < favoriteApps.length; i++) favoritesEl.appendChild(makeTile(favoriteApps[i]));
+    }
+    favoriteCountEl.textContent = favoriteApps.length + "/" + MAX_FAVORITES;
+  }
+
+  function renderGrid() {
+    gridEl.innerHTML = "";
+    var count = Math.max(1, Math.ceil(allApps.length / PAGE_SIZE));
+    if (page >= count) page = count - 1;
+    if (page < 0) page = 0;
+    var start = page * PAGE_SIZE;
+    pageApps = allApps.slice(start, start + PAGE_SIZE);
+    for (var i = 0; i < pageApps.length; i++) gridEl.appendChild(makeTile(pageApps[i]));
+    pageInfoEl.textContent = allApps.length + " apps \u00b7 Page " + (page + 1) + "/" + count;
+  }
+
+  function normalizeFocus() {
+    var list = section === "favorites" ? favoriteApps : pageApps;
+    if (section === "favorites" && !favoriteApps.length) { section = "grid"; focusIndex = 0; list = pageApps; }
+    if (!list.length) { focusIndex = 0; return; }
+    if (focusIndex < 0) focusIndex = 0;
+    if (focusIndex >= list.length) focusIndex = list.length - 1;
+  }
+
+  function applyFocus() {
+    if (lastFocusedTile) { lastFocusedTile.classList.remove("focused"); lastFocusedTile = null; }
+    normalizeFocus();
+    var app = currentApp();
+    var tiles = currentTiles();
+    if (!app) {
+      focusedNameEl.textContent = allApps.length ? "Select an app" : "No apps found";
+      focusedMetaEl.textContent = "";
+      return;
+    }
+    if (tiles[focusIndex] && tiles[focusIndex].classList.contains("tile")) {
+      lastFocusedTile = tiles[focusIndex];
+      lastFocusedTile.classList.add("focused");
+    }
+    focusedNameEl.textContent = app.name;
+    focusedMetaEl.textContent = (section === "favorites" ? "Favorite" : "All apps") +
+      " \u00b7 " + (hasFavorite(app.id) ? "Pinned" : "Not pinned");
+  }
+
+  function renderAll(keepFocusId) {
+    renderFavorites();
+    renderGrid();
+    if (keepFocusId) {
+      var list = section === "favorites" ? favoriteApps : pageApps;
+      for (var i = 0; i < list.length; i++) {
+        if (list[i].id === keepFocusId) { focusIndex = i; break; }
+      }
+    }
+    normalizeFocus();
+    applyFocus();
+  }
+
+  function scoreApp(name) {
+    var n = lower(name);
+    for (var i = 0; i < preferredNames.length; i++) {
+      if (n.indexOf(preferredNames[i]) !== -1) return i;
+    }
+    return preferredNames.length + 1;
+  }
+
+  function defaultFavorites() {
+    var ranked = allApps.slice().sort(function (a, b) {
+      var sa = scoreApp(a.name), sb = scoreApp(b.name);
+      if (sa !== sb) return sa - sb;
+      return lower(a.name) < lower(b.name) ? -1 : 1;
+    });
+    return ranked.slice(0, 5).map(function (a) { return a.id; });
+  }
+
+  function ensureFavorites() {
+    var initialized = false;
+    try { initialized = localStorage.getItem(FIRST_RUN_KEY) === "1"; } catch (e) {}
+    if (!initialized) {
+      favoriteIds = defaultFavorites();
+      writeJson(FAVORITES_KEY, favoriteIds);
+      try { localStorage.setItem(FIRST_RUN_KEY, "1"); } catch (e2) {}
+    } else {
+      favoriteIds = readJson(FAVORITES_KEY, []);
+      if (!favoriteIds || typeof favoriteIds.length !== "number") favoriteIds = [];
+      favoriteIds = favoriteIds.slice(0, MAX_FAVORITES);
+    }
+  }
+
+  function toggleFavorite() {
+    var app = currentApp();
+    if (!app) return;
+    if (hasFavorite(app.id)) {
+      favoriteIds = favoriteIds.filter(function (id) { return id !== app.id; });
+      writeJson(FAVORITES_KEY, favoriteIds);
+      toast("Unpinned " + app.name);
+      renderAll(section === "favorites" ? null : app.id);
+      return;
+    }
+    if (favoriteIds.length >= MAX_FAVORITES) { toast("Favorites are full (" + MAX_FAVORITES + ")"); return; }
+    favoriteIds.push(app.id);
+    writeJson(FAVORITES_KEY, favoriteIds);
+    toast("Pinned " + app.name);
+    renderAll(app.id);
+  }
+
+  function launchCurrent() {
+    var app = currentApp();
+    if (!app) return;
+    var api = tizenApi();
+    if (!api) {
+      showDiag("Launch API unavailable.\n" +
+        "tizen: " + (typeof tizen !== "undefined" ? "present" : "missing") + "\n" +
+        "application: " + (typeof tizen !== "undefined" && tizen.application ? "present" : "missing") + "\n" +
+        "Open this module from inside TizenBrew on the TV, not a desktop browser.");
+      toast("Cannot open " + app.name + " here");
+      return;
+    }
+    try {
+      api.launch(app.id, function () {}, function (err) {
+        var detail = err && (err.message || err.name) ? " (" + (err.message || err.name) + ")" : "";
+        showDiag("The TV refused to open " + app.name + detail + ".\nApp ID: " + app.id);
+        toast("Could not open " + app.name);
+      });
+    } catch (e) {
+      showDiag("Launch threw: " + (e && e.message ? e.message : e) + "\nApp ID: " + app.id);
+      toast("Could not open " + app.name);
+    }
+  }
+
+  function pageCount() { return Math.max(1, Math.ceil(allApps.length / PAGE_SIZE)); }
+  function changePage(delta) {
+    var next = page + delta;
+    if (next < 0 || next >= pageCount()) return;
+    page = next;
+    section = "grid";
+    focusIndex = 0;
+    renderGrid();
+    applyFocus();
+  }
+
+  function moveLeft() {
+    if (section === "favorites") { if (focusIndex > 0) focusIndex--; }
+    else if (focusIndex % COLS > 0) focusIndex--;
+    applyFocus();
+  }
+  function moveRight() {
+    var list = section === "favorites" ? favoriteApps : pageApps;
+    if (section === "favorites") { if (focusIndex + 1 < list.length) focusIndex++; }
+    else if (focusIndex % COLS < COLS - 1 && focusIndex + 1 < list.length) focusIndex++;
+    applyFocus();
+  }
+  function moveDown() {
+    if (section === "favorites") {
+      section = "grid";
+      focusIndex = Math.min(focusIndex, Math.max(0, pageApps.length - 1));
+    } else if (focusIndex + COLS < pageApps.length) focusIndex += COLS;
+    applyFocus();
+  }
+  function moveUp() {
+    if (section === "grid") {
+      var target = focusIndex - COLS;
+      if (target >= 0) focusIndex = target;
+      else if (favoriteApps.length) {
+        section = "favorites";
+        focusIndex = Math.min(focusIndex % COLS, favoriteApps.length - 1);
+      }
+    }
+    applyFocus();
+  }
+
+  function goBack() {
+    try {
+      if (window.history && history.length > 1) { history.back(); return; }
+    } catch (e) {}
+    try {
+      if (typeof tizen !== "undefined" && tizen.application) tizen.application.getCurrentApplication().exit();
+    } catch (e2) {}
+  }
+
+  function isLikelyHiddenSystemApp(app) {
+    var name = lower(app.name);
+    var id = lower(app.id);
+    if (!name) return true;
+    if (name.indexOf("com.") === 0) return true;
+    if ((name.indexOf("service") !== -1 || name.indexOf("daemon") !== -1) &&
+        (id.indexOf("service") !== -1 || id.indexOf("daemon") !== -1)) return true;
+    return false;
+  }
+
+  function normalizeApps(apps) {
+    var currentId = "";
+    try { currentId = tizen.application.getCurrentApplication().appInfo.id; } catch (e) {}
+    var seen = {};
+    var out = [];
+    for (var i = 0; i < apps.length; i++) {
+      var app = apps[i];
+      if (!app || !app.id || app.id === currentId) continue;
+      if (app.show === false) continue;
+      if (seen[app.id]) continue;
+      var info = {
+        id: String(app.id),
+        name: String(app.name || app.id),
+        iconPath: app.iconPath ? String(app.iconPath) : "",
+        packageId: app.packageId ? String(app.packageId) : ""
+      };
+      if (isLikelyHiddenSystemApp(info)) continue;
+      seen[info.id] = true;
+      out.push(info);
+    }
+    out.sort(function (a, b) {
+      var sa = scoreApp(a.name), sb = scoreApp(b.name);
+      if (sa !== sb) return sa - sb;
+      var aa = lower(a.name), bb = lower(b.name);
+      return aa < bb ? -1 : aa > bb ? 1 : 0;
+    });
+    return out;
+  }
+
+  function demoApps() {
+    return [
+      { id: "demo.netflix", name: "Netflix" },
+      { id: "demo.youtube.tv", name: "YouTube TV" },
+      { id: "demo.youtube", name: "YouTube" },
+      { id: "demo.prime", name: "Prime Video" },
+      { id: "demo.peacock", name: "Peacock" }
+    ];
+  }
+
+  function loadApps(showMessage) {
+    if (loading) return;
+    loading = true;
+    focusedNameEl.textContent = "Reading apps\u2026";
+    focusedMetaEl.textContent = "";
+    var api = tizenApi();
+    if (!api) {
+      loading = false;
+      allApps = demoApps();
+      ensureFavorites();
+      page = 0;
+      renderAll(false);
+      showDiag("Preview mode: Tizen app API not found.\nOn the TV this list comes from the installed apps. In a desktop browser it shows five demo tiles.");
+      return;
+    }
+    hideDiag();
+    try {
+      api.getAppsInfo(function (apps) {
+        loading = false;
+        allApps = normalizeApps(apps || []);
+        ensureFavorites();
+        if (page >= pageCount()) page = pageCount() - 1;
+        renderAll(false);
+        if (showMessage) toast("Refreshed " + allApps.length + " apps");
+        if (!allApps.length) {
+          showDiag("The TV returned no launchable apps.\ngetAppsInfo worked, but nothing survived filtering. Diagnostics: tizen present, application present, list API present, count 0.");
+        }
+      }, function (err) {
+        loading = false;
+        showDiag("Could not read the app list" + (err && (err.message || err.name) ? ": " + (err.message || err.name) : "") + ".\nThe previous screen was kept instead of showing a blank page.");
+        renderAll(false);
+      });
+    } catch (e) {
+      loading = false;
+      showDiag("Tizen error: " + (e && e.message ? e.message : e));
+      renderAll(false);
+    }
+  }
+
+  function onKey(e) {
+    var code = e.keyCode || e.which;
+    if (code === 37) moveLeft();
+    else if (code === 39) moveRight();
+    else if (code === 38) moveUp();
+    else if (code === 40) moveDown();
+    else if (code === 13) launchCurrent();
+    else if (code === 10009 || code === 27) goBack();
+    else if (code === 403) changePage(-1);
+    else if (code === 404) toggleFavorite();
+    else if (code === 405) loadApps(true);
+    else if (code === 406) changePage(1);
+    else return;
+    if (e.preventDefault) e.preventDefault();
+  }
+
+  updateClock();
+  setInterval(updateClock, 30000);
+  document.addEventListener("keydown", onKey, false);
+  loadApps(false);
+})();
